@@ -1,0 +1,10 @@
+wrangler.jsonc
+src
+functions
+supabase
+README.md
+.assetsignore
+.env.example
+.git
+node_modules
+.wrangler
