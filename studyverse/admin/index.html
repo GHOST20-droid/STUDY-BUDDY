@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>StudyVerse Admin</title>
+<style>
+:root{--bg:#F7F7FB;--s:#fff;--l:#E3E3EF;--ink:#16162A;--mut:#6A6A8A;--acc:#4F46E5;--bad:#B4321F}
+@media (prefers-color-scheme:dark){:root{--bg:#0F0F1A;--s:#171726;--l:#2C2C45;--ink:#EEEEF8;--mut:#9A9AB8;--acc:#8F89FF;--bad:#FF8C77}}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,sans-serif;padding:24px 16px}
+main{max-width:760px;margin:0 auto}.c{background:var(--s);border:1px solid var(--l);border-radius:14px;padding:18px;margin-top:16px}
+input,button{font:inherit;padding:9px 12px;border-radius:9px;border:1px solid var(--l);background:var(--s);color:var(--ink)}input{width:100%;box-sizing:border-box;margin:4px 0 12px}
+button{cursor:pointer}button.p{background:var(--acc);border-color:var(--acc);color:#fff}button.d{color:var(--bad)}.r{display:flex;gap:10px;align-items:center;justify-content:space-between;border-top:1px solid var(--l);padding:12px 0}.m{color:var(--mut);font-size:12.5px}
+</style></head><body><main>
+<h1 style="margin:0">StudyVerse Admin</h1><p class="m">Separate sign-in. Students never see this page and cannot pass its database checks.</p>
+<div id="login" class="c"><form id="f"><label for="e">Email</label><input id="e" type="email" autocomplete="username" required><label for="p">Password</label><input id="p" type="password" autocomplete="current-password" required><button class="p" type="submit">Sign in</button><p id="err" class="m" style="color:var(--bad)"></p></form></div>
+<div id="panel" class="c" hidden><div class="r" style="border:0;padding:0"><b>Reported notes</b><button id="out">Sign out</button></div><div id="list"></div></div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script>
+// config.js defines: window.SV_CONFIG = { url: 'https://xxxx.supabase.co', anonKey: 'public anon key' }  (these two values are safe to publish)
+const $ = s => document.querySelector(s), esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const cfg = window.SV_CONFIG || {}; if (!cfg.url) $('#err').textContent = 'Missing admin/config.js. See README.';
+const sb = cfg.url ? supabase.createClient(cfg.url, cfg.anonKey, { auth: { persistSession: true, storageKey: 'sv-admin-auth' } }) : null;
+async function gate() {
+  if (!sb) return; const { data: { session } } = await sb.auth.getSession(); if (!session) return show(false);
+  const { data, error } = await sb.from('admins').select('user_id').eq('user_id', session.user.id).maybeSingle();
+  if (error || !data) { await sb.auth.signOut(); $('#err').textContent = 'This account is not an administrator.'; return show(false); } show(true); load();
+}
+function show(ok) { $('#login').hidden = ok; $('#panel').hidden = !ok; }
+async function load() {
+  const { data, error } = await sb.from('shared_notes').select('id,title,subject_name,chapter_name,status,note_reports(count)').neq('status', 'removed').order('created_at', { ascending: false }).limit(100);
+  if (error) { $('#list').textContent = error.message; return; }
+  const rows = data.filter(n => n.status === 'hidden' || (n.note_reports && n.note_reports[0] && n.note_reports[0].count > 0));
+  $('#list').innerHTML = rows.length ? rows.map(n => `<div class="r"><div><b>${esc(n.title)}</b><div class="m">${esc(n.subject_name)} · ${esc(n.chapter_name || '')} · ${n.note_reports[0].count} report(s) · ${n.status}</div></div><div><button data-k="${n.id}" data-a="keep">Restore</button> <button class="d" data-k="${n.id}" data-a="remove">Remove</button></div></div>`).join('') : '<p class="m">Nothing reported.</p>';
+}
+$('#f').addEventListener('submit', async e => { e.preventDefault(); $('#err').textContent = ''; const { error } = await sb.auth.signInWithPassword({ email: $('#e').value, password: $('#p').value }); if (error) $('#err').textContent = error.message; else gate(); });
+$('#out').addEventListener('click', async () => { await sb.auth.signOut(); show(false); });
+$('#list').addEventListener('click', async e => { const b = e.target.closest('button[data-k]'); if (!b) return; const id = b.dataset.k;
+  if (b.dataset.a === 'keep') { await sb.from('shared_notes').update({ status: 'active' }).eq('id', id); await sb.from('note_reports').delete().eq('note_id', id); } else await sb.from('shared_notes').update({ status: 'removed' }).eq('id', id); load(); });
+gate();
+</script></body></html>
